@@ -47,11 +47,11 @@ for i in "${InFaces[@]}"; do  # 从网口循环获取IP
 done
 
 # 通过IP, host, 时区, 生成UUID. 重装脚本不改变, 不改变节点信息, 方便个人使用
-uuidSeed=${IPv4}${IPv6}$(cat /proc/sys/kernel/hostname)$(cat /etc/timezone)
-default_uuid=$(curl -sL https://www.uuidtools.com/api/generate/v3/namespace/ns:dns/name/${uuidSeed} | grep -oP '[^-]{8}-[^-]{4}-[^-]{4}-[^-]{4}-[^-]{12}')
+# uuidSeed=${IPv4}${IPv6}$(cat /proc/sys/kernel/hostname)$(cat /etc/timezone)
+# default_uuid=$(curl -sL https://www.uuidtools.com/api/generate/v3/namespace/ns:dns/name/${uuidSeed} | grep -oP '[^-]{8}-[^-]{4}-[^-]{4}-[^-]{4}-[^-]{12}')
 
 # 如果你想使用纯随机的UUID
-# default_uuid=$(cat /proc/sys/kernel/random/uuid)
+default_uuid=$(cat /proc/sys/kernel/random/uuid)
 
 # 执行脚本带参数
 if [ $# -ge 1 ]; then
@@ -66,15 +66,8 @@ if [ $# -ge 1 ]; then
         ip=${IPv6}
         ;;
     *) # initial
-        if [[ -n "$IPv4" ]]; then  # 检查是否获取到IP地址
-            netstack=4
-            ip=${IPv4}
-        elif [[ -n "$IPv6" ]]; then  # 检查是否获取到IP地址            
-            netstack=6
-            ip=${IPv6}
-        else
-            warn "没有获取到公共IP"
-        fi
+        netstack=custom
+        ip=${1}
         ;;
     esac
 
@@ -91,15 +84,21 @@ if [ $# -ge 1 ]; then
     fi
 
     # 第4个参数是UUID
-    uuid=${4}
-    if [[ -z $uuid ]]; then
-        uuid=${default_uuid}
+    count=${4}
+    if [[ -z $count ]]; then
+        count=1   # 默认生成 1 个
     fi
 
+    uuids=()
+    uuids+=("$default_uuid")
+    for ((i=2; i<=count; i++)); do
+        uuids+=("$(cat /proc/sys/kernel/random/uuid)")
+    done
+
     echo -e "$yellow netstack = ${cyan}${netstack}${none}"
-    echo -e "$yellow 本机IP = ${cyan}${ip}${none}"
+    echo -e "$yellow 服务器地址 = ${cyan}${ip}${none}"
     echo -e "$yellow 端口 (Port) = ${cyan}${port}${none}"
-    echo -e "$yellow 用户ID (User ID / UUID) = $cyan${uuid}${none}"
+    echo -e "$yellow 首个用户UUID = $cyan${uuids[0]}${none}"
     echo -e "$yellow SNI = ${cyan}$domain${none}"
     echo "----------------------------------------------------------------"
 fi
@@ -120,9 +119,9 @@ bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release
 bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install-geodata
 
 # 如果脚本带参数执行的, 要在安装了xray之后再生成默认私钥公钥shortID
-if [[ -n $uuid ]]; then
+if [[ -n $uuids ]]; then
   #私钥种子
-  private_key=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+  private_key=$(echo -n ${uuids[0]} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
 
   #生成私钥公钥
   tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
@@ -130,7 +129,7 @@ if [[ -n $uuid ]]; then
   public_key=$(echo ${tmp_key} | awk '{print $6}')
 
   #ShortID
-  shortid=$(echo -n ${uuid} | sha1sum | head -c 16)
+  shortid=$(echo -n ${uuids[0]} | sha1sum | head -c 16)
   
   echo
   echo "私钥公钥要在安装xray之后才可以生成"
@@ -160,12 +159,14 @@ if [[ -z $netstack ]]; then
   echo
   echo -e "如果你的小鸡是${magenta}双栈(同时有IPv4和IPv6的IP)${none}，请选择你把Xray搭在哪个'网口'上"
   echo "如果你不懂这段话是什么意思, 请直接回车"
-  read -p "$(echo -e "Input ${cyan}4${none} for IPv4, ${cyan}6${none} for IPv6:") " netstack
+  read -p "$(echo -e "Input ${cyan}4${none} for IPv4, ${cyan}6${none} for IPv6, ${cyan}custom${none} for custom_domain:") " netstack
 
   if [[ $netstack == "4" ]]; then
     ip=${IPv4}
   elif [[ $netstack == "6" ]]; then
     ip=${IPv6}
+  elif [[ $netstack == "custom" ]]; then
+    read -p "$(echo -e "Input domain of server:") " ip
   else
     if [[ -n "$IPv4" ]]; then
       ip=${IPv4}
@@ -202,24 +203,35 @@ if [[ -z $port ]]; then
 fi
 
 # Xray UUID
-if [[ -z $uuid ]]; then
+if [[ -z $uuids ]]; then
   while :; do
-    echo -e "请输入 "$yellow"UUID"$none" "
-    read -p "$(echo -e "(默认ID: ${cyan}${default_uuid}$none):")" uuid
-    [ -z "$uuid" ] && uuid=$default_uuid
-    case $(echo -n $uuid | sed -E 's/[a-z0-9]{8}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{12}//g') in
-    "")
-        echo
-        echo
-        echo -e "$yellow UUID = $cyan$uuid$none"
-        echo "----------------------------------------------------------------"
-        echo
-        break
-        ;;
-    *)
-        error
-        ;;
-    esac
+    echo -e "请输入 ${yellow}UUID 的数量${none} "
+    read -p "$(echo -e "(默认生成ID: ${cyan}${default_uuid}${none}):")" count
+
+    # 如果没输入，则用 default_uuid
+    if [[ -z "$count" ]]; then
+        uuids=("$default_uuid")
+    else
+        # 检查输入是否是正整数
+        if [[ "$count" =~ ^[0-9]+$ ]]; then
+            uuids=()
+            for ((i=1; i<=count; i++)); do
+                uuids+=("$(cat /proc/sys/kernel/random/uuid)")
+            done
+        else
+            error   # 输入不是数字
+            continue
+        fi
+    fi
+
+    echo
+    echo "----------------------------------------------------------------"
+    for u in "${uuids[@]}"; do
+        echo -e "$yellow UUID = $cyan$u$none"
+    done
+    echo "----------------------------------------------------------------"
+    echo
+    break
   done
 fi
 
@@ -293,6 +305,28 @@ fi
 # 配置config.json
 echo
 echo -e "$yellow 配置 /usr/local/etc/xray/config.json $none"
+clients=""
+for i in "${!uuids[@]}"; do
+    if [[ $i -eq 0 ]]; then
+        # 第一个 client，不加 email
+        clients="$clients
+          {
+            \"id\": \"${uuids[$i]}\",
+            \"flow\": \"xtls-rprx-vision\"
+          },"
+    else
+        # 其余 client，加 email
+        clients="$clients
+          {
+            \"id\": \"${uuids[$i]}\",
+            \"flow\": \"xtls-rprx-vision\",
+            \"email\": \"sub@public.com\"
+          },"
+    fi
+done
+
+# 去掉最后一个逗号
+clients=${clients%,}
 echo "----------------------------------------------------------------"
 cat > /usr/local/etc/xray/config.json <<-EOF
 { // VLESS + Reality
@@ -325,10 +359,7 @@ cat > /usr/local/etc/xray/config.json <<-EOF
       "protocol": "vless",
       "settings": {
         "clients": [
-          {
-            "id": "${uuid}",    // ***
-            "flow": "xtls-rprx-vision"
-          }
+          $clients
         ],
         "decryption": "none"
       },
@@ -416,6 +447,7 @@ cat > /usr/local/etc/xray/config.json <<-EOF
       {
         "type": "field",
         "ip": ["geoip:private"],
+        "user": ["sub@public.com"],
         "outboundTag": "block"
       }
     ]
@@ -440,7 +472,9 @@ echo "---------- Xray 配置信息 -------------"
 echo -e "$green ---提示..这是 VLESS Reality 服务器配置--- $none"
 echo -e "$yellow 地址 (Address) = $cyan${ip}$none"
 echo -e "$yellow 端口 (Port) = ${cyan}${port}${none}"
-echo -e "$yellow 用户ID (User ID / UUID) = $cyan${uuid}$none"
+for u in "${uuids[@]}"; do
+    echo -e "$yellow 用户ID (User ID / UUID) = $cyan${u}$none"
+done
 echo -e "$yellow 流控 (Flow) = ${cyan}xtls-rprx-vision${none}"
 echo -e "$yellow 加密 (Encryption) = ${cyan}none${none}"
 echo -e "$yellow 传输协议 (Network) = ${cyan}tcp$none"
@@ -456,22 +490,23 @@ echo "---------- VLESS Reality URL ----------"
 if [[ $netstack == "6" ]]; then
   ip=[$ip]
 fi
-vless_reality_url="vless://${uuid}@${ip}:${port}?flow=xtls-rprx-vision&encryption=none&type=tcp&security=reality&sni=${domain}&fp=${fingerprint}&pbk=${public_key}&sid=${shortid}&spx=${spiderx}&#VLESS_R_${ip}"
-echo -e "${cyan}${vless_reality_url}${none}"
+for u in "${uuids[@]}"; do
+  vless_reality_url="vless://${u}@${ip}:${port}?flow=xtls-rprx-vision&encryption=none&type=tcp&security=reality&sni=${domain}&fp=${fingerprint}&pbk=${public_key}&sid=${shortid}&spx=${spiderx}&#VLESS_R_${ip}"
+  echo -e "${cyan}${vless_reality_url}${none}"
+  # 节点信息保存到文件中
+  echo $vless_reality_url > ~/_vless_reality_url_
+  echo "以下两个二维码完全一样的内容" >> ~/_vless_reality_url_
+  qrencode -t UTF8 $vless_reality_url >> ~/_vless_reality_url_
+  qrencode -t ANSI $vless_reality_url >> ~/_vless_reality_url_
+done
 echo
 sleep 3
 echo "以下两个二维码完全一样的内容"
-qrencode -t UTF8 $vless_reality_url
-qrencode -t ANSI $vless_reality_url
+# qrencode -t UTF8 $vless_reality_url
+# qrencode -t ANSI $vless_reality_url
 echo
 echo "---------- END -------------"
 echo "以上节点信息保存在 ~/_vless_reality_url_ 中"
-
-# 节点信息保存到文件中
-echo $vless_reality_url > ~/_vless_reality_url_
-echo "以下两个二维码完全一样的内容" >> ~/_vless_reality_url_
-qrencode -t UTF8 $vless_reality_url >> ~/_vless_reality_url_
-qrencode -t ANSI $vless_reality_url >> ~/_vless_reality_url_
 
 # 如果是 IPv6 小鸡，用 WARP 创建 IPv4 出站
 if [[ $netstack == "6" ]]; then

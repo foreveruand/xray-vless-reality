@@ -1,6 +1,7 @@
 # xray-vless-reality
 Xray, VLESS_Reality模式 极简一键脚本
 
+
 # 说明 
 这个一键脚本超级简单。有效语句8行(其中BBR 5行, 安装Xray 1行, 生成x25519公私钥 1行，生成UUID 1行)+Xray配置文件69行(其中你需要修改4行), 其它都是用来检验小白输入错误参数或者搭建条件不满足的。
 
@@ -14,8 +15,17 @@ apt update
 apt install -y curl
 ```
 ```
-bash <(curl -L https://github.com/crazypeace/xray-vless-reality/raw/main/install.sh)
+bash <(curl -L https://github.com/foreveruand/xray-vless-reality/raw/main/install.sh)
 ```
+## 修改内容
+### 参数修改
+netstack可以输入4/6/域名
+自定义输入uuid修改为随机生成的uuid数量
+### 脚本修改
+- 未加参数时，netstack输入custom可以继续输入服务器域名
+- UUID默认随机生成（使用第一个生成的uuid进行密钥生成）
+- 生成的第一个UUID出站规则删除private:block，其余UUID保持block
+- 控制台输出不再打印二维码
 
 脚本中很大部分都是在校验用户的输入。其实照着下面的步骤自己配置就行了。
 
