@@ -335,6 +335,27 @@ cat > /usr/local/etc/xray/config.json <<-EOF
     "error": "/var/log/xray/error.log",
     "loglevel": "warning"
   },
+  "stats": {},
+  "api": {
+    "tag": "api",
+    "services": [
+      "StatsService"
+    ]
+  },
+  "policy": {
+    "levels": {
+      "0": {
+        "statsUserDownlink": true,
+        "statsUserUplink": true
+      }
+    },
+    "system": {
+      "statsInboundDownlink": true,
+      "statsInboundUplink": true,
+      "statsOutboundDownlink": false,
+      "statsOutboundUplink": false
+    }
+  },
   "inbounds": [
     // [inbound] 如果你想使用其它翻墙服务端如(HY2或者NaiveProxy)对接v2ray的分流规则, 那么取消下面一段的注释, 并让其它翻墙服务端接到下面这个socks 1080端口
     // {
@@ -353,6 +374,15 @@ cat > /usr/local/etc/xray/config.json <<-EOF
     //     "udp":false
     //   }
     // },
+    {
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "protocol": "dokodemo-door",
+      "settings": {
+        "address": "127.0.0.1"
+      },
+      "tag": "api"
+    },
     {
       "listen": "0.0.0.0",
       "port": ${port},    // ***
@@ -444,6 +474,13 @@ cat > /usr/local/etc/xray/config.json <<-EOF
 //   "ip": ["geoip:cn"],  // ***
 //   "outboundTag": "force-ipv6"  // force-ipv6 // force-ipv4 // socks5-warp // blocked
 //},
+      {
+        "inboundTag": [
+          "api"
+        ],
+        "outboundTag": "api",
+        "type": "field"
+      },
       {
         "type": "field",
         "ip": ["geoip:private"],
