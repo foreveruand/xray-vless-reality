@@ -375,7 +375,7 @@ cat > /usr/local/etc/xray/config.json <<-EOF
     //   }
     // },
     {
-      "listen": "127.0.0.1",
+      "listen": null,
       "port": 10085,
       "protocol": "dokodemo-door",
       "settings": {
