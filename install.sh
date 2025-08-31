@@ -308,9 +308,10 @@ echo -e "$yellow 配置 /usr/local/etc/xray/config.json $none"
 clients=""
 for i in "${!uuids[@]}"; do
     if [[ $i -eq 0 ]]; then
-        # 第一个 client，不加 email
+        # 第一个 client，配置为自用
         clients="$clients
           {
+            \"email\": \"superuser\",
             \"id\": \"${uuids[$i]}\",
             \"flow\": \"xtls-rprx-vision\"
           },"
@@ -320,7 +321,7 @@ for i in "${!uuids[@]}"; do
           {
             \"id\": \"${uuids[$i]}\",
             \"flow\": \"xtls-rprx-vision\",
-            \"email\": \"sub@public.com\"
+            \"email\": \"public\"
           },"
     fi
 done
@@ -484,7 +485,7 @@ cat > /usr/local/etc/xray/config.json <<-EOF
       {
         "type": "field",
         "ip": ["geoip:private"],
-        "user": ["sub@public.com"],
+        "user": ["public"],
         "outboundTag": "block"
       }
     ]
