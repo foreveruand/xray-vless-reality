@@ -238,7 +238,7 @@ fi
 # x25519公私钥
 if [[ -z $private_key ]]; then
   # 私钥种子
-  private_key=$(echo -n ${uuid} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
+  private_key=$(echo -n ${uuids[0]} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
 
   tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
   default_private_key=$(echo ${tmp_key} | awk '{print $3}')
