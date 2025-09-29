@@ -241,8 +241,8 @@ if [[ -z $private_key ]]; then
   private_key=$(echo -n ${uuids[0]} | md5sum | head -c 32 | base64 -w 0 | tr '+/' '-_' | tr -d '=')
 
   tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
-  default_private_key=$(echo ${tmp_key} | awk '{print $3}')
-  default_public_key=$(echo ${tmp_key} | awk '{print $6}')
+  default_private_key=$(echo ${tmp_key} | awk '{print $2}')
+  default_public_key=$(echo ${tmp_key} | awk '{print $4}')
 
   echo -e "请输入 "$yellow"x25519 Private Key"$none" x25519私钥 :"
   read -p "$(echo -e "(默认私钥 Private Key: ${cyan}${default_private_key}$none):")" private_key
@@ -251,8 +251,8 @@ if [[ -z $private_key ]]; then
     public_key=$default_public_key
   else
     tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
-    private_key=$(echo ${tmp_key} | awk '{print $3}')
-    public_key=$(echo ${tmp_key} | awk '{print $6}')
+    private_key=$(echo ${tmp_key} | awk '{print $2}')
+    public_key=$(echo ${tmp_key} | awk '{print $4}')
   fi
 
   echo
