@@ -22,6 +22,28 @@ pause() {
     echo
 }
 
+# 2. 定义帮助函数
+show_help() {
+    echo -e "
+${GREEN}Xray 中转/落地配置安装脚本${PLAIN}
+
+${YELLOW}用法:${PLAIN}
+  bash $0 [参数]
+
+${YELLOW}参数说明:${PLAIN}
+  -h, --help       显示本帮助说明
+  
+
+${YELLOW}示例:${PLAIN}
+  bash $0              # 正常交互模式运行
+  bash $0 -h           # 查看帮助
+  bash $0 custom 18626 genshin.hoyoverse.com 2
+"
+}
+if [ $1 == "-h" ]; then
+  show_help
+  exit 0
+fi
 # 说明
 echo
 echo -e "$yellow此脚本仅兼容于Debian 10+系统. 如果你的系统不符合,请Ctrl+C退出脚本$none"
@@ -125,8 +147,8 @@ if [[ -n $uuids ]]; then
 
   #生成私钥公钥
   tmp_key=$(echo -n ${private_key} | xargs xray x25519 -i)
-  private_key=$(echo ${tmp_key} | awk '{print $3}')
-  public_key=$(echo ${tmp_key} | awk '{print $6}')
+  private_key=$(echo ${tmp_key} | awk '{print $2}')
+  public_key=$(echo ${tmp_key} | awk '{print $4}')
 
   #ShortID
   shortid=$(echo -n ${uuids[0]} | sha1sum | head -c 16)
@@ -328,15 +350,109 @@ done
 
 # 去掉最后一个逗号
 clients=${clients%,}
+
+echo -e "${YELLOW}请选择当前服务器的角色：${PLAIN}"
+echo -e "1. ${GREEN}服务器 A (国内/中转)${PLAIN} - 负责接收用户连接并转发给 B"
+echo -e "2. ${GREEN}服务器 B (海外/落地)${PLAIN} - 负责接收 A 的流量并访问互联网"
+read -p "请输入数字 [1-2]: " role
+
+# 初始化变量，避免空变量报错
+append_outbounds=""
+append_inbounds=""
+append_routing=""
+if [[ "$role" == "1" ]]; then
+    # ==========================================
+    # 配置服务器 A (中转端)
+    # ==========================================
+    echo -e "\n${YELLOW}正在配置服务器 A (中转)...${PLAIN}"
+    
+    read -p "请输入服务器 B (落地) 的 IP 地址: " remote_ip_b
+    read -p "请输入服务器 B (落地) 的 端口: " remote_port_b
+    read -p "请输入服务器 B 的 UUID (需与 B 端一致): " uuid
+    
+    # 注意：这里是一个完整的 outbound 对象，且末尾加了逗号
+    append_outbounds="
+      {
+        \"tag\": \"to-b\",
+        \"protocol\": \"vless\",
+        \"settings\": {
+          \"vnext\": [{
+            \"address\": \"${remote_ip_b}\",
+            \"port\": ${remote_port_b},
+            \"users\": [{
+              \"id\": \"${uuid}\",
+              \"encryption\": \"none\"
+            }]
+          }]
+        },
+        \"streamSettings\": {\"network\": \"tcp\"}
+      },
+    "
+
+    # 注意：为了防止 JSON 逗号错误，这里以逗号开头
+    append_routing="
+      ,
+      {
+        \"type\": \"field\",
+        \"ip\": [\"geoip:private\"],
+        \"outboundTag\": \"direct\"
+      },
+      {
+        \"type\": \"field\",
+        \"inboundTag\": [\"client-in\"],
+        \"outboundTag\": \"to-b\"
+      }
+    "
+
+elif [[ "$role" == "2" ]]; then
+    # ==========================================
+    # 配置服务器 B (落地端)
+    # ==========================================
+    echo -e "\n${YELLOW}正在配置服务器 B (落地)...${PLAIN}"
+
+    read -p "请输入服务器 B 的监听端口 (建议 18625): " listen_port_b
+    [ -z "$listen_port_b" ] && listen_port_b=18625
+
+    auto_uuid=("$(cat /proc/sys/kernel/random/uuid)")
+    echo -e "自动生成的 UUID: ${GREEN}${auto_uuid}${PLAIN}"
+    read -p "是否使用此 UUID? [y/n] (默认 y): " use_auto
+    if [[ "$use_auto" == "n" ]]; then
+        read -p "请输入自定义 UUID: " ab_uuid
+    else
+        ab_uuid=$auto_uuid
+    fi
+
+    # 修复了之前缺失的逗号和语法错误
+    append_inbounds="
+      {
+        \"listen\": \"0.0.0.0\",
+        \"port\": ${listen_port_b},
+        \"protocol\": \"vless\",
+        \"settings\": {
+          \"clients\": [{
+            \"id\": \"${ab_uuid}\"
+          }],
+          \"decryption\": \"none\"
+        },
+        \"streamSettings\": {\"network\": \"tcp\"},
+        \"tag\": \"in-b\"
+      },
+    "
+fi  # <--- 之前缺少了这个结束符
+
 echo "----------------------------------------------------------------"
+echo -e "${GREEN}正在写入配置文件...${PLAIN}"
+
+# 注意：标准 JSON 不支持注释 //，但在 Xray 中通常兼容。
+# 如果为了严谨，建议删除 JSON 中的注释。
+
 cat > /usr/local/etc/xray/config.json <<-EOF
-{ // VLESS + Reality
+{
   "log": {
     "access": "/var/log/xray/access.log",
     "error": "/var/log/xray/error.log",
     "loglevel": "warning"
   },
-  "stats": {},
   "api": {
     "tag": "api",
     "services": [
@@ -358,23 +474,6 @@ cat > /usr/local/etc/xray/config.json <<-EOF
     }
   },
   "inbounds": [
-    // [inbound] 如果你想使用其它翻墙服务端如(HY2或者NaiveProxy)对接v2ray的分流规则, 那么取消下面一段的注释, 并让其它翻墙服务端接到下面这个socks 1080端口
-    // {
-    //   "listen":"127.0.0.1",
-    //   "port":1080,
-    //   "protocol":"socks",
-    //   "sniffing":{
-    //     "enabled":true,
-    //     "destOverride":[
-    //       "http",
-    //       "tls"
-    //     ]
-    //   },
-    //   "settings":{
-    //     "auth":"noauth",
-    //     "udp":false
-    //   }
-    // },
     {
       "listen": null,
       "port": 10085,
@@ -384,13 +483,15 @@ cat > /usr/local/etc/xray/config.json <<-EOF
       },
       "tag": "api"
     },
+    ${append_inbounds}
     {
       "listen": "0.0.0.0",
-      "port": ${port},    // ***
+      "tag": "client-in",
+      "port": ${port},
       "protocol": "vless",
       "settings": {
         "clients": [
-          $clients
+          ${clients}
         ],
         "decryption": "none"
       },
@@ -399,11 +500,11 @@ cat > /usr/local/etc/xray/config.json <<-EOF
         "security": "reality",
         "realitySettings": {
           "show": false,
-          "dest": "${domain}:443",    // ***
+          "dest": "${domain}:443",
           "xver": 0,
-          "serverNames": ["${domain}"],    // ***
-          "privateKey": "${private_key}",    // ***私钥
-          "shortIds": ["${shortid}"]    // ***
+          "serverNames": ["${domain}"],
+          "privateKey": "${private_key}",
+          "shortIds": ["${shortid}"]
         }
       },
       "sniffing": {
@@ -417,31 +518,31 @@ cat > /usr/local/etc/xray/config.json <<-EOF
       "protocol": "freedom",
       "tag": "direct"
     },
-// [outbound]
-{
-    "protocol": "freedom",
-    "settings": {
-        "domainStrategy": "UseIPv4"
+    ${append_outbounds}
+    {
+      "protocol": "freedom",
+      "settings": {
+          "domainStrategy": "UseIPv4"
+      },
+      "tag": "force-ipv4"
     },
-    "tag": "force-ipv4"
-},
-{
-    "protocol": "freedom",
-    "settings": {
-        "domainStrategy": "UseIPv6"
+    {
+      "protocol": "freedom",
+      "settings": {
+          "domainStrategy": "UseIPv6"
+      },
+      "tag": "force-ipv6"
     },
-    "tag": "force-ipv6"
-},
-{
-    "protocol": "socks",
-    "settings": {
-        "servers": [{
-            "address": "127.0.0.1",
-            "port": 40000 //warp socks5 port
-        }]
-     },
-    "tag": "socks5-warp"
-},
+    {
+      "protocol": "socks",
+      "settings": {
+          "servers": [{
+              "address": "127.0.0.1",
+              "port": 40000
+          }]
+       },
+      "tag": "socks5-warp"
+    },
     {
       "protocol": "blackhole",
       "tag": "block"
@@ -459,22 +560,6 @@ cat > /usr/local/etc/xray/config.json <<-EOF
   "routing": {
     "domainStrategy": "IPIfNonMatch",
     "rules": [
-// [routing-rule]
-//{
-//   "type": "field",
-//   "domain": ["geosite:google", "geosite:openai"],  // ***
-//   "outboundTag": "force-ipv6"  // force-ipv6 // force-ipv4 // socks5-warp
-//},
-//{
-//   "type": "field",
-//   "domain": ["geosite:cn"],  // ***
-//   "outboundTag": "force-ipv6"  // force-ipv6 // force-ipv4 // socks5-warp // blocked
-//},
-//{
-//   "type": "field",
-//   "ip": ["geoip:cn"],  // ***
-//   "outboundTag": "force-ipv6"  // force-ipv6 // force-ipv4 // socks5-warp // blocked
-//},
       {
         "inboundTag": [
           "api"
@@ -487,7 +572,8 @@ cat > /usr/local/etc/xray/config.json <<-EOF
         "ip": ["geoip:private"],
         "user": ["public"],
         "outboundTag": "block"
-      }
+      },
+      ${append_routing}
     ]
   }
 }
